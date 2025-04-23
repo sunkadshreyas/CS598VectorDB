@@ -1,8 +1,11 @@
 import faiss
 import numpy as np
-from threading import Event, Thread
+from threading import Event, Thread, Lock
 import time
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import os
+from pathlib import Path
 
 # Dataset loading helpers
 def ivecs_read(fname):
@@ -27,192 +30,116 @@ def compute_recall(results, ground_truth, k):
         correct += len(set(res[:k]).intersection(set(gt[:k])))
     return correct / (len(results) * k)
 
-# Time-series plotting
-def plot_time_series(metrics_log):
-    for metric_name, values in metrics_log.items():
-        times, metrics = zip(*values)
-        plt.plot(times, metrics, label=metric_name)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Metric Value")
-    plt.title("Search Metrics Over Time During Dynamic Updates")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-# Search thread
-def search_worker(index, xq, gt, topk, log, stop_event):
+def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
-        D, I = index.search(xq, topk)
+        with lock:
+            D, I = index.search(xq, topk)
         end = time.time()
-        latency = (end - start) * 1000
         qps = xq.shape[0] / (end - start)
-        recall = (I[:, :topk] == gt[:, :topk]).sum() / (topk * len(gt))
-        log['latency'].append(latency)
+        latency = (end - start) * 1000
+        recall = compute_recall(I, gt, topk)
         log['qps'].append(qps)
+        log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.1)
+        time.sleep(0.5)
 
 # Main evaluation
-def simulate_dynamic_updates_simple(root_dir, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_simple(root_dir, pdf_path, update_percents=[25, 75], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
 
-    base_size = 100_000
-    update_pool = xb[base_size:base_size + 500_000]
-    baseline_data = xb[:base_size]
+    pdf = PdfPages(pdf_path)
 
-    results_summary = {
-        'update_percent': [],
-        'final_qps': [],
-        'final_latency': [],
-        'final_recall': []
-    }
+    base_size = xb.shape[0]
 
-    # === Baseline ===
-    index = faiss.IndexFlatL2(xb.shape[1])
-    index.add(baseline_data)
-    print("Running baseline...")
+    index = faiss.IndexHNSWFlat(xb.shape[1], 32)
+    index.hnsw.efConstruction = 40
+    index.hnsw.efSearch = 64
+    index = faiss.IndexIDMap(index)
+    index.add_with_ids(xb, np.arange(xb.shape[0]))
 
     start = time.time()
     D, I = index.search(xq, topk)
     end = time.time()
-    baseline_latency = (end - start) * 1000
     baseline_qps = xq.shape[0] / (end - start)
-    baseline_recall = (I[:, :topk] == gt[:, :topk]).sum() / (topk * len(gt))
-    print(f"\n[Baseline] QPS: {baseline_qps:.2f}, Latency: {baseline_latency:.2f}ms, Recall: {baseline_recall:.4f}")
+    baseline_latency = (end - start) * 1000
+    baseline_recall = compute_recall(I, gt, topk)
 
-    # Save baseline for final plot
-    results_summary['update_percent'].append(0)
-    results_summary['final_qps'].append(baseline_qps)
-    results_summary['final_latency'].append(baseline_latency)
-    results_summary['final_recall'].append(baseline_recall)
+    print(f"\nBaseline - QPS: {baseline_qps:.2f}, Latency: {baseline_latency:.2f}ms, Recall: {baseline_recall:.4f}")
+
+    results_summary = {
+        'update_percent': [0],
+        'final_qps': [baseline_qps],
+        'final_latency': [baseline_latency],
+        'final_recall': [baseline_recall]
+    }
 
     # === Dynamic Updates ===
-    for percent in update_percents:
-        print(f"\n>> Update Percent = {percent}%")
-        num_updates = int(base_size * percent / 100)
-
-        # Build original index
-        index = faiss.IndexFlatL2(xb.shape[1])
-        index.add(baseline_data)
+    for update_percent in update_percents:
+        print(f"\nRunning with {update_percent}% updates...")
+        num_updates = int(base_size * update_percent / 100)
 
         log = {'qps': [], 'latency': [], 'recall': []}
+        lock = Lock()
         stop_event = Event()
-        search_thread = Thread(target=search_worker, args=(index, xq, gt, topk, log, stop_event))
+        search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(1)  # Let search thread warm up
+        time.sleep(2)
 
-        # Simulate delete + insert
-        remaining = baseline_data[num_updates:]
-        new = update_pool[:num_updates]
-        updated_data = np.vstack([remaining, new])
+        with lock:
+            start_del = time.time()
+            index = faiss.IndexHNSWFlat(xb.shape[1], 32)
+            index.hnsw.efConstruction = 40
+            index.hnsw.efSearch = 64
+            index = faiss.IndexIDMap(index)
+            index.add_with_ids(xb[:base_size - num_updates], np.arange(base_size - num_updates))
+            delete_latency = time.time() - start_del
+            print(f"Delete latency: {delete_latency:.4f}s")
 
-        start_del = time.time()
-        index = faiss.IndexFlatL2(xb.shape[1])
-        index.add(updated_data)
-        insert_latency = time.time() - start_del
+        with lock:
+            start_ins = time.time()
+            index.add_with_ids(xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
+            insert_latency = time.time() - start_ins
+            print(f"Insert throughput: {num_updates / insert_latency:.2f} vectors/sec")
 
-        time.sleep(2.5)  # Let search thread run a bit more
+        time.sleep(5)
         stop_event.set()
         search_thread.join()
 
-        # Metrics
-        final_qps = np.mean(log['qps'])
-        p99_latency = np.percentile(log['latency'], 99)
-        final_recall = np.mean(log['recall'])
-        print(f"[{percent}%] QPS: {final_qps:.2f}, p99 Latency: {p99_latency:.2f}ms, Recall: {final_recall:.4f}")
+        results_summary['update_percent'].append(update_percent)
+        results_summary['final_qps'].append(np.mean(log['qps'][-5:]))
+        results_summary['final_latency'].append(np.mean(log['latency'][-5:]))
+        results_summary['final_recall'].append(np.mean(log['recall'][-5:]))
 
-        # Append results
-        results_summary['update_percent'].append(percent)
-        results_summary['final_qps'].append(final_qps)
-        results_summary['final_latency'].append(p99_latency)
-        results_summary['final_recall'].append(final_recall)
-
-        # === Time-series plot for this update percent ===
         plt.figure(figsize=(10, 4))
         plt.plot(log['qps'], label='QPS')
         plt.plot(log['latency'], label='Latency (ms)')
-        plt.xlabel("Time (interval)")
+        plt.xlabel("Time Interval")
         plt.ylabel("Value")
-        plt.title(f"Time-series QPS/Latency during {percent}% Update")
+        plt.title(f"{update_percent}% Update - QPS & Latency")
         plt.legend()
         plt.grid()
-        plt.show()
+        pdf.savefig()
+        plt.close()
 
-    # === Summary plot ===
-    update_percents_full = results_summary['update_percent']
-    plt.figure(figsize=(12, 6))
-
-    plt.plot(update_percents_full, results_summary['final_qps'], marker='o', label='QPS')
-    plt.plot(update_percents_full, results_summary['final_latency'], marker='s', label='p99 Latency (ms)')
-    plt.plot(update_percents_full, results_summary['final_recall'], marker='^', label='Recall')
-
+    plt.figure(figsize=(10, 5))
+    plt.plot(results_summary['update_percent'], results_summary['final_qps'], marker='o', label='QPS')
+    plt.plot(results_summary['update_percent'], results_summary['final_latency'], marker='s', label='Latency (ms)')
+    plt.plot(results_summary['update_percent'], results_summary['final_recall'], marker='^', label='Recall')
     plt.xlabel("Update Percent")
-    plt.ylabel("Metric Value")
-    plt.title("Summary: QPS, Latency, and Recall vs. Update Percent")
+    plt.ylabel("Value")
+    plt.title("QPS, Latency, Recall vs. Update Percent")
     plt.legend()
     plt.grid()
-    plt.show()
+    pdf.savefig()
+    plt.close()
 
-def plot_dynamic_metrics(baseline_results, dynamic_results):
-
-    # Time-series plots for each update_percent
-    for result in dynamic_results:
-        percent = result["percent"]
-        metrics = result["metrics"]
-        timestamps = [t - metrics["timestamps"][0] for t in metrics["timestamps"]]
-
-        plt.figure(figsize=(16, 5))
-        plt.suptitle(f"Search Performance During {percent}% Update")
-
-        # Latency
-        plt.subplot(1, 3, 1)
-        plt.plot(timestamps, metrics["latencies"], label="Search Latency (ms)")
-        plt.axhline(y=baseline_results["latency"], color='r', linestyle='--', label='Baseline')
-        plt.xlabel("Time (s)")
-        plt.ylabel("Latency (ms)")
-        plt.legend()
-        plt.grid()
-
-        # QPS
-        plt.subplot(1, 3, 2)
-        plt.plot(timestamps, metrics["qps"], label="QPS")
-        plt.axhline(y=baseline_results["qps"], color='r', linestyle='--', label='Baseline')
-        plt.xlabel("Time (s)")
-        plt.ylabel("QPS")
-        plt.legend()
-        plt.grid()
-
-        # Recall
-        plt.subplot(1, 3, 3)
-        plt.plot(timestamps, metrics["recalls"], label="Recall@k")
-        plt.axhline(y=baseline_results["recall"], color='r', linestyle='--', label='Baseline')
-        plt.xlabel("Time (s)")
-        plt.ylabel("Recall")
-        plt.legend()
-        plt.grid()
-
-        plt.tight_layout()
-        plt.show()
-
-    # Summary bar charts for insert/delete latency
-    percents = [r["percent"] for r in dynamic_results]
-    insert_latencies = [r["metrics"]["insert_latency"] for r in dynamic_results]
-    delete_latencies = [r["metrics"]["delete_latency"] for r in dynamic_results]
-
-    plt.figure(figsize=(10, 4))
-    plt.bar(percents, insert_latencies, width=4, label="Insert Latency (ms)")
-    plt.bar(percents, delete_latencies, width=4, bottom=insert_latencies, label="Delete Latency (ms)")
-    plt.xlabel("Update Percent (%)")
-    plt.ylabel("Latency (ms)")
-    plt.title("Insert/Delete Latency vs Update Load")
-    plt.legend()
-    plt.grid()
-    plt.show()
-
+    pdf.close()
 
 # --- Main ---
 if __name__ == "__main__":
-    simulate_dynamic_updates_simple(".")
+    plot_dir = Path("plots")
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = plot_dir / "dynamic_updates.pdf"
+    simulate_dynamic_updates_simple(".", pdf_path)
