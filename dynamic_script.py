@@ -139,6 +139,7 @@ def simulate_dynamic_updates_simple(root_dir, pdf_path, update_percents=[25, 75]
 
 # --- Main ---
 if __name__ == "__main__":
+    
     plot_dir = Path("plots")
     plot_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = plot_dir / "dynamic_updates.pdf"
