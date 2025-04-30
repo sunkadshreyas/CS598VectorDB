@@ -122,5 +122,5 @@ def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[25, 75]
 if __name__ == "__main__":
     plot_dir = Path("logs")
     plot_dir.mkdir(parents=True, exist_ok=True)
-    txt_path = plot_dir / "dynamic_updates_faiss.txt"
+    txt_path = plot_dir / "dynamic_updates.txt"
     simulate_dynamic_updates_simple(".", txt_path)

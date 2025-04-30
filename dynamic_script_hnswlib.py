@@ -2,8 +2,6 @@ import hnswlib
 import numpy as np
 from threading import Event, Thread, Lock
 import time
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 from pathlib import Path
 
 # Dataset loading helpers
@@ -53,16 +51,13 @@ def build_index(xb, dim, max_elements, M=32, ef_construction=200, ef=64):
     return index
 
 # Main evaluation
-def simulate_dynamic_updates_hnswlib(root_dir, pdf_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[25, 75], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
     dim = xb.shape[1]
     base_size = xb.shape[0]
 
-    pdf = PdfPages(pdf_path)
-    txt_path = str(pdf_path).replace(".pdf", ".txt")
     txt_log = open(txt_path, "w")
 
-    # Initial index
     index = build_index(xb, dim, max_elements=base_size)
 
     start = time.time()
@@ -121,35 +116,11 @@ def simulate_dynamic_updates_hnswlib(root_dir, pdf_path, update_percents=[25, 75
         for i, (qps, latency, recall) in enumerate(zip(log['qps'], log['latency'], log['recall'])):
             txt_log.write(f"Interval {i+1}: QPS = {qps:.2f} queries/sec, Latency = {latency:.2f} ms, Recall = {recall:.4f}\n")
 
-        plt.figure(figsize=(10, 4))
-        plt.plot(log['qps'], label='QPS')
-        plt.plot(log['latency'], label='Latency (ms)')
-        plt.xlabel("Time Interval")
-        plt.ylabel("Value")
-        plt.title(f"{update_percent}% Update - QPS & Latency")
-        plt.legend()
-        plt.grid()
-        pdf.savefig()
-        plt.close()
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(results_summary['update_percent'], results_summary['final_qps'], marker='o', label='QPS')
-    plt.plot(results_summary['update_percent'], results_summary['final_latency'], marker='s', label='Latency (ms)')
-    plt.plot(results_summary['update_percent'], results_summary['final_recall'], marker='^', label='Recall')
-    plt.xlabel("Update Percent")
-    plt.ylabel("Value")
-    plt.title("QPS, Latency, Recall vs. Update Percent")
-    plt.legend()
-    plt.grid()
-    pdf.savefig()
-    plt.close()
-
-    pdf.close()
     txt_log.close()
 
 # --- Main ---
 if __name__ == "__main__":
-    plot_dir = Path("plots_hnswlib")
-    plot_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = plot_dir / "dynamic_updates_hnswlib.pdf"
-    simulate_dynamic_updates_hnswlib(".", pdf_path)
+    log_dir = Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = log_dir / "dynamic_updates_hnswlib.txt"
+    simulate_dynamic_updates_hnswlib(".", txt_path)

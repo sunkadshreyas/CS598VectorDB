@@ -109,7 +109,7 @@ def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[25, 75], 
 
 # --- Main ---
 if __name__ == "__main__":
-    log_dir = Path("logs")
+    log_dir = Path("logs_mrpt")
     log_dir.mkdir(parents=True, exist_ok=True)
     txt_path = log_dir / "dynamic_updates_mrpt.txt"
     simulate_dynamic_updates_mrpt(".", txt_path)
