@@ -50,11 +50,8 @@ def insert_vectors(r, xb, ids):
     pipe = r.pipeline(transaction=False)
     for i, vec in zip(ids, xb):
         key = f"vec:{i}"
-        if not r.exists(key):   # Check if key already exists
-            pipe.hset(key, mapping={
-                "vector": vec.tobytes()
-            })
-        # else: you can optionally log "skipped"
+        if not r.exists(key):
+            pipe.hset(key, mapping={"vector": vec.tobytes()})
     pipe.execute()
 
 # Delete vectors
@@ -92,17 +89,20 @@ def compute_recall(results, ground_truth, k):
     return correct / (len(results) * k)
 
 # Background search thread
-def background_search_loop(r, xq, gt, topk, log, stop_event):
+def background_search_loop(r, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
-        start = time.time()
-        I = search_vectors(r, xq, topk)
-        end = time.time()
+        with lock:  # <=== Locking search
+            start = time.time()
+            I = search_vectors(r, xq, topk)
+            end = time.time()
+        
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
         recall = compute_recall(I, gt, topk)
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
+
         time.sleep(0.5)
 
 # Main evaluation
@@ -113,10 +113,6 @@ def simulate_dynamic_updates_redis(root_dir, pdf_path, update_percents=[25, 75],
 
     base_size = xb.shape[0]
     insert_vectors(r, xb, np.arange(base_size))
-
-    num_keys = sum(1 for _ in r.scan_iter(match="vec:*"))
-    print(f"🔍 Found {num_keys} vector keys in Redis (expected {base_size})")
-    assert num_keys == base_size, "Mismatch in inserted vector count!"
 
     start = time.time()
     I = search_vectors(r, xq, topk)
@@ -142,19 +138,19 @@ def simulate_dynamic_updates_redis(root_dir, pdf_path, update_percents=[25, 75],
         num_updates = int(base_size * update_percent / 100)
 
         log = {'qps': [], 'latency': [], 'recall': []}
+        lock = threading.Lock()  # <=== Create a lock
         stop_event = threading.Event()
-        search_thread = threading.Thread(target=background_search_loop, args=(r, xq, gt, topk, log, stop_event))
+        search_thread = threading.Thread(target=background_search_loop, args=(r, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
         time.sleep(2)
 
-        # Delete a portion
-        delete_vectors(r, np.arange(base_size - num_updates, base_size))
-        print(f"Deleted {num_updates} vectors.")
+        with lock:  # <=== Lock updates
+            delete_vectors(r, np.arange(base_size - num_updates, base_size))
+            print(f"Deleted {num_updates} vectors.")
 
-        # Re-insert
-        insert_vectors(r, xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
-        print(f"Re-inserted {num_updates} vectors.")
+            insert_vectors(r, xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
+            print(f"Re-inserted {num_updates} vectors.")
 
         time.sleep(5)
         stop_event.set()

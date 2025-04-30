@@ -178,6 +178,6 @@ def simulate_milvus_dynamic(root_dir, pdf_path, update_percents=[25,75], topk=10
     pdf.close()
 
 if __name__ == "__main__":
-    plot_dir = Path("milvus_plots")
+    plot_dir = Path("plots")
     plot_dir.mkdir(exist_ok=True)
     simulate_milvus_dynamic(".", plot_dir/"milvus_dynamic.pdf")

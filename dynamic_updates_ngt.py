@@ -1,12 +1,14 @@
+import ngt
 import numpy as np
-from annoy import AnnoyIndex
 from threading import Event, Thread, Lock
 import time
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from pathlib import Path
+import os
+import shutil
 
-# Dataset loading helpers
+# Dataset loading
 def ivecs_read(fname):
     a = np.fromfile(fname, dtype='int32')
     d = a[0]
@@ -22,25 +24,30 @@ def load_dataset(root_dir):
     gt = ivecs_read(f"{root_dir}/sift/sift_groundtruth.ivecs")
     return xt, xb, xq, gt
 
-# Metric calculation
 def compute_recall(results, ground_truth, k):
     correct = 0
     for res, gt in zip(results, ground_truth):
         correct += len(set(res[:k]).intersection(set(gt[:k])))
     return correct / (len(results) * k)
 
-def annoy_search(index, xq, topk):
-    results = []
-    for v in xq:
-        idxs = index.get_nns_by_vector(v, topk)
-        results.append(idxs)
-    return results
+def build_ngt_index(xb, index_path, dimension):
+    if os.path.exists(index_path):
+        shutil.rmtree(index_path)
+    os.makedirs(index_path, exist_ok=True)
+    ngt.create(index_path, dimension, distance_type="L2")
+    index = ngt.Index(index_path)
+    index.batch_insert(xb.tolist())
+    index.save()
+    return index
+
+def search_ngt(index, xq, topk):
+    return np.array([index.search(q.tolist(), topk)[0] for q in xq])
 
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
         with lock:
-            I = annoy_search(index, xq, topk)
+            I = search_ngt(index, xq, topk)
         end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
@@ -50,25 +57,21 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['recall'].append(recall)
         time.sleep(0.5)
 
-# Main evaluation
-def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_ngt(root_dir, pdf_path, update_percents=[25, 75], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+
+    index_path = "ngt_index_tmp"
+    base_size = xb.shape[0]
+    dim = xb.shape[1]
 
     pdf = PdfPages(pdf_path)
     txt_path = str(pdf_path).replace(".pdf", ".txt")
     txt_log = open(txt_path, "w")
 
-    dim = xb.shape[1]
-    base_size = xb.shape[0]
-
-    # Build initial Annoy index
-    index = AnnoyIndex(dim, metric='euclidean')
-    for i in range(base_size):
-        index.add_item(i, xb[i])
-    index.build(50)
+    index = build_ngt_index(xb, index_path, dim)
 
     start = time.time()
-    I = annoy_search(index, xq, topk)
+    I = search_ngt(index, xq, topk)
     end = time.time()
     baseline_qps = xq.shape[0] / (end - start)
     baseline_latency = (end - start) * 1000
@@ -90,28 +93,32 @@ def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75],
         log = {'qps': [], 'latency': [], 'recall': []}
         lock = Lock()
         stop_event = Event()
+
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(4)
+        time.sleep(2)
 
         with lock:
-            start_rebuild = time.time()
-            index = AnnoyIndex(dim, metric='euclidean')
-            for i in range(base_size):
-                index.add_item(i, xb[i])
-            index.build(50)
-            rebuild_latency = time.time() - start_rebuild
-            print(f"Rebuild latency (delete + insert): {rebuild_latency:.4f}s")
+            start_del = time.time()
+            index = build_ngt_index(xb[:base_size - num_updates], index_path, dim)
+            delete_latency = time.time() - start_del
+            print(f"Delete latency: {delete_latency:.4f}s")
 
-        time.sleep(10)
+        with lock:
+            start_ins = time.time()
+            index.batch_insert(xb[base_size - num_updates:].tolist())
+            index.save()
+            insert_latency = time.time() - start_ins
+            print(f"Insert throughput: {num_updates / insert_latency:.2f} vectors/sec")
+
+        time.sleep(5)
         stop_event.set()
         search_thread.join()
 
         avg_qps = np.mean(log['qps'][-5:])
         avg_latency = np.mean(log['latency'][-5:])
         avg_recall = np.mean(log['recall'][-5:])
-
         results_summary['update_percent'].append(update_percent)
         results_summary['final_qps'].append(avg_qps)
         results_summary['final_latency'].append(avg_latency)
@@ -119,7 +126,7 @@ def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75],
 
         txt_log.write(f"\n--- {update_percent}% Update ---\n")
         for i, (qps, latency, recall) in enumerate(zip(log['qps'], log['latency'], log['recall'])):
-            txt_log.write(f"Interval {i+1}: QPS = {qps:.2f} queries/sec, Latency = {latency:.2f} ms, Recall = {recall:.4f}\n")
+            txt_log.write(f"Interval {i+1}: QPS = {qps:.2f}, Latency = {latency:.2f} ms, Recall = {recall:.4f}\n")
 
         plt.figure(figsize=(10, 4))
         plt.plot(log['qps'], label='QPS')
@@ -146,11 +153,11 @@ def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75],
 
     pdf.close()
     txt_log.close()
+    shutil.rmtree(index_path)
 
-
-# --- Main ---
+# Main
 if __name__ == "__main__":
     plot_dir = Path("plots")
     plot_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = plot_dir / "dynamic_updates_annoy.pdf"
-    simulate_dynamic_updates_annoy(".", pdf_path)
+    pdf_path = plot_dir / "ngt_dynamic_updates.pdf"
+    simulate_dynamic_updates_ngt(".", pdf_path)

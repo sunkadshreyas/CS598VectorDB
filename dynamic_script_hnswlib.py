@@ -1,5 +1,5 @@
+import hnswlib
 import numpy as np
-from annoy import AnnoyIndex
 from threading import Event, Thread, Lock
 import time
 import matplotlib.pyplot as plt
@@ -29,50 +29,48 @@ def compute_recall(results, ground_truth, k):
         correct += len(set(res[:k]).intersection(set(gt[:k])))
     return correct / (len(results) * k)
 
-def annoy_search(index, xq, topk):
-    results = []
-    for v in xq:
-        idxs = index.get_nns_by_vector(v, topk)
-        results.append(idxs)
-    return results
-
+# Background search loop
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
         with lock:
-            I = annoy_search(index, xq, topk)
+            labels, _ = index.knn_query(xq, k=topk)
         end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
-        recall = compute_recall(I, gt, topk)
+        recall = compute_recall(labels, gt, topk)
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
         time.sleep(0.5)
 
+# Build new hnswlib index with specified capacity
+def build_index(xb, dim, max_elements, M=32, ef_construction=200, ef=64):
+    index = hnswlib.Index(space='l2', dim=dim)
+    index.init_index(max_elements=max_elements, ef_construction=ef_construction, M=M)
+    index.set_ef(ef)
+    index.add_items(xb, np.arange(xb.shape[0]))
+    return index
+
 # Main evaluation
-def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_hnswlib(root_dir, pdf_path, update_percents=[25, 75], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+    dim = xb.shape[1]
+    base_size = xb.shape[0]
 
     pdf = PdfPages(pdf_path)
     txt_path = str(pdf_path).replace(".pdf", ".txt")
     txt_log = open(txt_path, "w")
 
-    dim = xb.shape[1]
-    base_size = xb.shape[0]
-
-    # Build initial Annoy index
-    index = AnnoyIndex(dim, metric='euclidean')
-    for i in range(base_size):
-        index.add_item(i, xb[i])
-    index.build(50)
+    # Initial index
+    index = build_index(xb, dim, max_elements=base_size)
 
     start = time.time()
-    I = annoy_search(index, xq, topk)
+    labels, _ = index.knn_query(xq, k=topk)
     end = time.time()
     baseline_qps = xq.shape[0] / (end - start)
     baseline_latency = (end - start) * 1000
-    baseline_recall = compute_recall(I, gt, topk)
+    baseline_recall = compute_recall(labels, gt, topk)
 
     print(f"\nBaseline - QPS: {baseline_qps:.2f}, Latency: {baseline_latency:.2f}ms, Recall: {baseline_recall:.4f}")
 
@@ -93,26 +91,28 @@ def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75],
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(4)
+        time.sleep(2)
 
         with lock:
-            start_rebuild = time.time()
-            index = AnnoyIndex(dim, metric='euclidean')
-            for i in range(base_size):
-                index.add_item(i, xb[i])
-            index.build(50)
-            rebuild_latency = time.time() - start_rebuild
-            print(f"Rebuild latency (delete + insert): {rebuild_latency:.4f}s")
+            start_del = time.time()
+            index = build_index(xb[:base_size - num_updates], dim, max_elements=base_size)
+            delete_latency = time.time() - start_del
+            print(f"Delete latency (rebuild): {delete_latency:.4f}s")
 
-        time.sleep(10)
+        with lock:
+            start_ins = time.time()
+            index.add_items(xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
+            insert_latency = time.time() - start_ins
+            print(f"Insert throughput: {num_updates / insert_latency:.2f} vectors/sec")
+
+        time.sleep(5)
         stop_event.set()
         search_thread.join()
 
+        results_summary['update_percent'].append(update_percent)
         avg_qps = np.mean(log['qps'][-5:])
         avg_latency = np.mean(log['latency'][-5:])
         avg_recall = np.mean(log['recall'][-5:])
-
-        results_summary['update_percent'].append(update_percent)
         results_summary['final_qps'].append(avg_qps)
         results_summary['final_latency'].append(avg_latency)
         results_summary['final_recall'].append(avg_recall)
@@ -147,10 +147,9 @@ def simulate_dynamic_updates_annoy(root_dir, pdf_path, update_percents=[25, 75],
     pdf.close()
     txt_log.close()
 
-
 # --- Main ---
 if __name__ == "__main__":
-    plot_dir = Path("plots")
+    plot_dir = Path("plots_hnswlib")
     plot_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = plot_dir / "dynamic_updates_annoy.pdf"
-    simulate_dynamic_updates_annoy(".", pdf_path)
+    pdf_path = plot_dir / "dynamic_updates_hnswlib.pdf"
+    simulate_dynamic_updates_hnswlib(".", pdf_path)

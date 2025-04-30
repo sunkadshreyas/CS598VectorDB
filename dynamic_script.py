@@ -49,6 +49,8 @@ def simulate_dynamic_updates_simple(root_dir, pdf_path, update_percents=[25, 75]
     xt, xb, xq, gt = load_dataset(root_dir)
 
     pdf = PdfPages(pdf_path)
+    txt_path = str(pdf_path).replace(".pdf", ".txt")
+    txt_log = open(txt_path, "w")
 
     base_size = xb.shape[0]
 
@@ -74,7 +76,6 @@ def simulate_dynamic_updates_simple(root_dir, pdf_path, update_percents=[25, 75]
         'final_recall': [baseline_recall]
     }
 
-    # === Dynamic Updates ===
     for update_percent in update_percents:
         print(f"\nRunning with {update_percent}% updates...")
         num_updates = int(base_size * update_percent / 100)
@@ -108,9 +109,16 @@ def simulate_dynamic_updates_simple(root_dir, pdf_path, update_percents=[25, 75]
         search_thread.join()
 
         results_summary['update_percent'].append(update_percent)
-        results_summary['final_qps'].append(np.mean(log['qps'][-5:]))
-        results_summary['final_latency'].append(np.mean(log['latency'][-5:]))
-        results_summary['final_recall'].append(np.mean(log['recall'][-5:]))
+        avg_qps = np.mean(log['qps'][-5:])
+        avg_latency = np.mean(log['latency'][-5:])
+        avg_recall = np.mean(log['recall'][-5:])
+        results_summary['final_qps'].append(avg_qps)
+        results_summary['final_latency'].append(avg_latency)
+        results_summary['final_recall'].append(avg_recall)
+
+        txt_log.write(f"\n--- {update_percent}% Update ---\n")
+        for i, (qps, latency, recall) in enumerate(zip(log['qps'], log['latency'], log['recall'])):
+            txt_log.write(f"Interval {i+1}: QPS = {qps:.2f} queries/sec, Latency = {latency:.2f} ms, Recall = {recall:.4f}\n")
 
         plt.figure(figsize=(10, 4))
         plt.plot(log['qps'], label='QPS')
@@ -136,6 +144,8 @@ def simulate_dynamic_updates_simple(root_dir, pdf_path, update_percents=[25, 75]
     plt.close()
 
     pdf.close()
+    txt_log.close()
+
 
 # --- Main ---
 if __name__ == "__main__":
