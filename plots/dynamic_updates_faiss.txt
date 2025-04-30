@@ -1,0 +1,18 @@
+
+--- 25% Update ---
+Interval 1: QPS = 19395.91 queries/sec, Latency = 515.57 ms, Recall = 0.9775
+Interval 2: QPS = 19452.01 queries/sec, Latency = 514.09 ms, Recall = 0.9775
+Interval 3: QPS = 255.60 queries/sec, Latency = 39122.96 ms, Recall = 0.9775
+Interval 4: QPS = 19528.40 queries/sec, Latency = 512.07 ms, Recall = 0.9775
+Interval 5: QPS = 19402.36 queries/sec, Latency = 515.40 ms, Recall = 0.9775
+Interval 6: QPS = 19592.20 queries/sec, Latency = 510.41 ms, Recall = 0.9775
+Interval 7: QPS = 19447.50 queries/sec, Latency = 514.20 ms, Recall = 0.9775
+
+--- 75% Update ---
+Interval 1: QPS = 19578.49 queries/sec, Latency = 510.76 ms, Recall = 0.9761
+Interval 2: QPS = 19636.30 queries/sec, Latency = 509.26 ms, Recall = 0.9761
+Interval 3: QPS = 258.76 queries/sec, Latency = 38645.99 ms, Recall = 0.9761
+Interval 4: QPS = 19450.61 queries/sec, Latency = 514.12 ms, Recall = 0.9761
+Interval 5: QPS = 19524.73 queries/sec, Latency = 512.17 ms, Recall = 0.9761
+Interval 6: QPS = 19438.16 queries/sec, Latency = 514.45 ms, Recall = 0.9761
+Interval 7: QPS = 19446.66 queries/sec, Latency = 514.23 ms, Recall = 0.9761
