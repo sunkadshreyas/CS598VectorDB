@@ -61,10 +61,10 @@ def search_hnswlib(index, xq, topk):
 # MRPT Section
 def build_mrpt(xb):
     index = mrpt.MRPTIndex(xb)
+    index.build_autotune_sample(0.9, 10)
     return index
 
 def search_mrpt(index, xq, topk):
-    index.build_autotune_sample(0.9, topk)
     I = []
     for vec in xq:
         I.append(index.ann(vec))
@@ -106,19 +106,21 @@ def search_faiss_ivfpq(index, xq, topk):
 def build_annoy(xb):
     dim = xb.shape[1]
     index = AnnoyIndex(dim, 'euclidean')
-    for i, vec in enumerate(xb):
-        index.add_item(i, vec.tolist())
-        if i % 30000 == 0:
-            print(f"Added {i} items to Annoy index")
-    index.build(100)
-    index.save('test.ann')
+    for i in range(xb.shape[0]):
+        index.add_item(i, xb[i])
+    index.build(50)
+    return index
 
-def search_annoy():
-    pass
+def search_annoy(index, xq, topk):
+    results = []
+    for v in xq:
+        ids = index.get_nns_by_vector(v, topk)
+        results.append(ids)
+    return results
 
-def evaluate_scaling_behavior(root_dir, client_counts=[2,4], topk=10):
+def evaluate_scaling_behavior(root_dir, client_counts=[10,20,30,40,50], topk=10):
     xb, xq, gt, xt = load_dataset(root_dir)
-    xb = xb[:150000]
+    # xb = xb[:150000]
 
     plot_dir = Path("plots")
     plot_dir.mkdir(exist_ok=True)
@@ -126,9 +128,8 @@ def evaluate_scaling_behavior(root_dir, client_counts=[2,4], topk=10):
     pdf = PdfPages(pdf_path)
 
     backends = {
-        "HNSWLib": build_hnswlib,
-        "Annoy": lambda xb: build_annoy(xb),
         "MRPT": build_mrpt,
+        "HNSWLib": build_hnswlib,
         "NGT-ONGG": build_ngt,
         "FAISS-IVF": lambda xb: build_faiss_ivfpq(xb, xt),
     }
@@ -147,15 +148,15 @@ def evaluate_scaling_behavior(root_dir, client_counts=[2,4], topk=10):
             def single_client(client_id):
                 start = time.time()
                 if backend_name == "Annoy":
-                    I = np.array([index.get_nns_by_vector(vec.tolist(), topk) for vec in xq])
+                    I = search_annoy(index, xq, topk)
                 elif backend_name == "FAISS-IVF":
-                    D, I = index.search(xq, topk)
+                    I = search_faiss_ivfpq(index, xq, topk)
                 elif backend_name == "HNSWLib":
-                    I = np.array([index.knn_query(vec, k=topk)[0] for vec in xq])
+                    I = search_hnswlib(index, xq, topk)
                 elif backend_name == "MRPT":
-                    I = index.query(xq, k=topk)
+                    I = search_mrpt(index, xq, topk)
                 elif backend_name == "NGT-ONGG":
-                    I = np.array([list(index.search(vec, topk)) for vec in xq])
+                    I = search_ngt(index, xq, topk)
                 end = time.time()
                 qps = xq.shape[0] / (end - start)
                 latency = (end - start) * 1000
@@ -200,66 +201,5 @@ def evaluate_scaling_behavior(root_dir, client_counts=[2,4], topk=10):
     pdf.close()
     print(f"\n📄 Scaling behavior plots saved to: {pdf_path}")
 
-
-def test_hnswlib():
-    xb, xq, gt, xt = load_dataset(".")
-    xb = xb[:150000]
-    index = build_hnswlib(xb)
-    I = index.knn_query(xq, k=10)[0]
-    print(I.shape)
-    recall = compute_recall(I, gt, 10)
-    print(f"Recall: {recall:.4f}")
-
-def test_annoy():
-    xb, xq, gt, xt = load_dataset(".")
-    xb = xb[:350000]
-    build_annoy(xb)
-    index = AnnoyIndex(xb.shape[1], 'euclidean')
-    index.load('test.ann')
-    I = []
-    for i, vec in enumerate(xq):
-        results = index.get_nns_by_vector(vec.tolist(), 10, 5000)
-        # print(len(results))
-        I.append(results)
-        if i < 5:
-            print(f"Query {i}: {results}")
-    I = np.array(I)
-    print(I.shape)
-    recall = compute_recall(I, gt, 10)
-    print(f"Recall: {recall:.4f}")
-
-def test_mrpt():
-    xb, xq, gt, xt = load_dataset(".")
-    xb = xb[:150000]
-    index = build_mrpt(xb)
-    index.build_autotune_sample(0.9, 10)
-    I = []
-    for vec in xq:
-        I.append(index.ann(vec))
-    I = np.array(I)
-    recall = compute_recall(I, gt, 10)
-    print(f"Recall: {recall:.4f}")
-
-def test_ngt():
-    xb, xq, gt, xt = load_dataset(".")
-    xb = xb[:150000]
-    index = build_ngt(xb)
-    I = []
-    for vec in xq:
-        results = index.search(vec, 10)
-        ids = [id for id, distance in results]
-        I.append(ids)
-    I = np.array(I)
-    recall = compute_recall(I, gt, 10)
-    print(f"Recall: {recall:.4f}")
-
 if __name__ == "__main__":
-    # print(f"Testing HNSWLib...")
-    # test_hnswlib()
-    print(f"Testing Annoy...")
-    test_annoy()
-    # print(f"Testing MRPT...")
-    # test_mrpt()
-    # print(f"Testing NGT...")
-    # test_ngt()
-    # evaluate_scaling_behavior(".")
+    evaluate_scaling_behavior(".")
