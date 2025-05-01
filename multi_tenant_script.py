@@ -105,7 +105,7 @@ def search_faiss_ivfpq(index, xq, topk):
 # ANNOY Section
 def build_annoy(xb):
     dim = xb.shape[1]
-    index = AnnoyIndex(dim, 'euclidean')
+    index = AnnoyIndex(dim, metric='euclidean')
     for i in range(xb.shape[0]):
         index.add_item(i, xb[i])
     index.build(50)
@@ -128,10 +128,11 @@ def evaluate_scaling_behavior(root_dir, client_counts=[10,20,30,40,50], topk=10)
     pdf = PdfPages(pdf_path)
 
     backends = {
+        "Annoy": build_annoy,
         "MRPT": build_mrpt,
         "HNSWLib": build_hnswlib,
         "NGT-ONGG": build_ngt,
-        "FAISS-IVF": lambda xb: build_faiss_ivfpq(xb, xt),
+        "FAISS-IVF": lambda xb: build_faiss_ivfpq(xb, xt)
     }
 
     all_results = {backend: {"latencies": [], "qps": [], "throughputs": [], "recalls": []} for backend in backends}
