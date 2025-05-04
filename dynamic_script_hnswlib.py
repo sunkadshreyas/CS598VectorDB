@@ -40,7 +40,7 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.25)
+        time.sleep(1)
 
 # Build new hnswlib index with specified capacity
 def build_index(xb, dim, max_elements, M=32, ef_construction=200, ef=64):
@@ -53,7 +53,6 @@ def build_index(xb, dim, max_elements, M=32, ef_construction=200, ef=64):
 # Main evaluation
 def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
-    xb = xb[:100000]  # Limit the size of xb for testing
     dim = xb.shape[1]
     base_size = xb.shape[0]
 
@@ -87,7 +86,7 @@ def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[50], t
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(5)
+        time.sleep(30)
 
         # with lock:
         start_del = time.time()
@@ -113,7 +112,7 @@ def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[50], t
         log['recall'].append(-4)
         print(f"Insert latency: {insert_latency:.4f}s")
 
-        time.sleep(5)
+        time.sleep(30)
         stop_event.set()
         search_thread.join()
 

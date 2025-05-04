@@ -39,7 +39,7 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.25)
+        time.sleep(1)
 
 def build_mrpt_index(data, k):
     index = mrpt.MRPTIndex(data)
@@ -48,7 +48,6 @@ def build_mrpt_index(data, k):
 
 def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
-    xb = xb[:100000]  # Limit the size of xb for testing
 
     base_size = xb.shape[0]
     txt_log = open(txt_path, "w")
@@ -81,7 +80,7 @@ def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[50], topk
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(5)
+        time.sleep(30)
 
         delete_start = time.time()
         log['qps'].append(-1)
@@ -105,7 +104,7 @@ def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[50], topk
         log['recall'].append(-4)
         print(f"Insert time: {time.time() - insert_start:.2f}s")
         
-        time.sleep(5)
+        time.sleep(30)
         stop_event.set()
         search_thread.join()
 

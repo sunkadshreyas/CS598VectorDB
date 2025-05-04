@@ -40,13 +40,11 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.25)
+        time.sleep(1)
 
 # Main evaluation
 def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
-
-    xb = xb[:100000]
 
     txt_log = open(txt_path, "w")
 
@@ -84,7 +82,7 @@ def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[50], to
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(5)
+        time.sleep(30)
 
         # with lock:
         start_del = time.time()
@@ -114,7 +112,7 @@ def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[50], to
         log['recall'].append(-4)
         print(f"Insert latency: {insert_latency:.4f}s")
 
-        time.sleep(5)
+        time.sleep(30)
         stop_event.set()
         search_thread.join()
 

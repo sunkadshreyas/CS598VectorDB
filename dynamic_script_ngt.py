@@ -34,8 +34,8 @@ def search_ngt(index, xq, topk):
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
-        with lock:
-            I = search_ngt(index, xq, topk)
+        # with lock:
+        I = search_ngt(index, xq, topk)
         end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
@@ -43,11 +43,10 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.05)
+        time.sleep(1)
 
 def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
-    xb = xb[:100000]  # Limit the size of xb for testing
 
     txt_log = open(txt_path, "w")
 
@@ -92,7 +91,7 @@ def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[50], topk=
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(5)
+        time.sleep(30)
 
         # with lock:
         start_del = time.time()
@@ -121,7 +120,7 @@ def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[50], topk=
         print(f"Insert latency: {insert_latency:.4f}s")
         print(f"Insert throughput: {num_updates / insert_latency:.2f} items/s")
 
-        time.sleep(5)
+        time.sleep(30)
         stop_event.set()
         search_thread.join()
 

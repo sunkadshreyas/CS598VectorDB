@@ -46,12 +46,11 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.25)
+        time.sleep(1)
 
 # Main evaluation
 def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
-    xb = xb[:100000]
 
     txt_log = open(txt_path, "w")
 
@@ -90,7 +89,7 @@ def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[50], top
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(5)
+        time.sleep(30)
 
         # with lock:
         start_delete = time.time()
@@ -111,16 +110,17 @@ def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[50], top
         log['qps'].append(-3)
         log['latency'].append(-3)
         log['recall'].append(-3)
-        for i in range(base_size * update_percent // 100, base_size):     
-            index.add_item(i, xb[i])
-        index.build(100)
+        index2 = AnnoyIndex(dim, metric='euclidean')
+        for i in range(base_size):     
+            index2.add_item(i, xb[i])
+        index2.build(100)
         insert_latency = time.time() - start_insert
         log['qps'].append(-4)
         log['latency'].append(-4)
         log['recall'].append(-4)
         print(f"Insert latency: {insert_latency:.4f}s")
 
-        time.sleep(5)
+        time.sleep(30)
         stop_event.set()
         search_thread.join()
 

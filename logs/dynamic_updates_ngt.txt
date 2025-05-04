@@ -1,15 +1,13 @@
 
---- 25% Update ---
-Interval 1: QPS = 992.21, Latency = 10078.49 ms, Recall = 0.9416
-Interval 2: QPS = 71.48, Latency = 139904.46 ms, Recall = 0.9416
-Interval 3: QPS = 133.48, Latency = 74919.20 ms, Recall = 0.9416
-Interval 4: QPS = 986.82, Latency = 10133.58 ms, Recall = 0.9416
-Interval 5: QPS = 820.77, Latency = 12183.65 ms, Recall = 0.9416
-
---- 75% Update ---
-Interval 1: QPS = 988.89, Latency = 10112.36 ms, Recall = 0.9416
-Interval 2: QPS = 121.11, Latency = 82572.29 ms, Recall = 0.9416
-Interval 3: QPS = 88.78, Latency = 112644.00 ms, Recall = 0.9416
-Interval 4: QPS = 1317.27, Latency = 7591.48 ms, Recall = 0.9416
-Interval 5: QPS = 1314.21, Latency = 7609.12 ms, Recall = 0.9416
-Interval 6: QPS = 1307.04, Latency = 7650.88 ms, Recall = 0.9416
+--- 50% Update ---
+Interval 1: QPS = 1186.29, Latency = 8429.61 ms, Recall = 0.9416
+Interval 2: QPS = 1210.84, Latency = 8258.72 ms, Recall = 0.9416
+Interval 3: QPS = 1239.44, Latency = 8068.14 ms, Recall = 0.9416
+Interval 4: QPS = -1.00, Latency = -1.00 ms, Recall = -1.0000
+Interval 5: QPS = -2.00, Latency = -2.00 ms, Recall = -2.0000
+Interval 6: QPS = -3.00, Latency = -3.00 ms, Recall = -3.0000
+Interval 7: QPS = -4.00, Latency = -4.00 ms, Recall = -4.0000
+Interval 8: QPS = 27.11, Latency = 368875.63 ms, Recall = 0.9416
+Interval 9: QPS = 1206.59, Latency = 8287.79 ms, Recall = 0.9416
+Interval 10: QPS = 1211.00, Latency = 8257.62 ms, Recall = 0.9416
+Interval 11: QPS = 1205.31, Latency = 8296.65 ms, Recall = 0.9416
