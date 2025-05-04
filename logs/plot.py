@@ -2,6 +2,7 @@ import glob
 import os
 import re
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 # Regex to match both with/without "queries/sec"
 pattern = re.compile(
@@ -37,21 +38,30 @@ for filepath in glob.glob('dynamic_updates_*.txt'):
     # Plot
     fig, ax1 = plt.subplots()
     ax2 = ax1.twinx()
-    ax1.plot(intervals, qps_vals, label='QPS')
-    ax2.plot(intervals, latencies, label='Latency')
 
-    # Highlight regions
+    # Plot lines with distinct colors
+    qps_line, = ax1.plot(intervals, qps_vals, color='tab:green', label='QPS')
+    latency_line, = ax2.plot(intervals, latencies, color='tab:orange', label='Latency')
+
+    # Shade delete (red) and insert (blue) regions
     for start, end in delete_regions:
         ax1.axvspan(start, end, color='red', alpha=0.3)
     for start, end in insert_regions:
         ax1.axvspan(start, end, color='blue', alpha=0.2)
 
+    # Create legend patches for regions
+    delete_patch = mpatches.Patch(color='red', alpha=0.3, label='Delete Region')
+    insert_patch = mpatches.Patch(color='blue', alpha=0.2, label='Insert Region')
+
+    # Combine all legend entries
+    handles = [qps_line, latency_line, delete_patch, insert_patch]
+    labels = ['QPS', 'Latency', 'Delete Region', 'Insert Region']
+    ax1.legend(handles, labels, loc='upper left')
+
     ax1.set_xlabel('Interval')
     ax1.set_ylabel('QPS')
     ax2.set_ylabel('Latency (ms)')
     plt.title(f'{dbname}: QPS & Latency with Delete/Insert Regions')
-    ax1.legend(loc='upper left')
-    ax2.legend(loc='upper right')
     plt.tight_layout()
 
     # Save output
