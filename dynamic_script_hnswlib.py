@@ -51,8 +51,9 @@ def build_index(xb, dim, max_elements, M=32, ef_construction=200, ef=64):
     return index
 
 # Main evaluation
-def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+    xb = xb[:100000]  # Limit the size of xb for testing
     dim = xb.shape[1]
     base_size = xb.shape[0]
 

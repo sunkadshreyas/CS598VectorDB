@@ -43,10 +43,11 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.25)
+        time.sleep(0.05)
 
-def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+    xb = xb[:100000]  # Limit the size of xb for testing
 
     txt_log = open(txt_path, "w")
 

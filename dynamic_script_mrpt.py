@@ -46,7 +46,7 @@ def build_mrpt_index(data, k):
     index.build_autotune_sample(0.9, k)
     return index
 
-def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
     xb = xb[:100000]  # Limit the size of xb for testing
 
@@ -54,12 +54,15 @@ def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[25, 75], 
     txt_log = open(txt_path, "w")
 
     index = build_mrpt_index(xb, topk)
-    baseline_results = [index.ann(vec, k=topk) for vec in xq]
-    baseline_recall = compute_recall(baseline_results, gt, topk)
-    baseline_latency = 0
-    baseline_qps = xq.shape[0] / (time.time() - time.time() + 0.01)
+    start = time.time()
+    results = [index.ann(query, k=topk) for query in xq]
+    end = time.time()
+    baseline_qps = xq.shape[0] / (end - start)
+    baseline_latency = (end - start) * 1000
+    baseline_recall = compute_recall(results, gt, topk)
 
     print(f"\nBaseline - QPS: {baseline_qps:.2f}, Latency: {baseline_latency:.2f}ms, Recall: {baseline_recall:.4f}")
+
 
     results_summary = {
         'update_percent': [0],
