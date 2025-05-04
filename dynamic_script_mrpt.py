@@ -29,17 +29,17 @@ def compute_recall(results, ground_truth, k):
 
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
-        with lock:
-            start = time.time()
-            results = [index.ann(query, k=topk) for query in xq]
-            end = time.time()
+        # with lock:
+        start = time.time()
+        results = [index.ann(query, k=topk) for query in xq]
+        end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
         recall = compute_recall(results, gt, topk)
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.5)
+        time.sleep(0.25)
 
 def build_mrpt_index(data, k):
     index = mrpt.MRPTIndex(data)
@@ -48,6 +48,7 @@ def build_mrpt_index(data, k):
 
 def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[25, 75], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+    xb = xb[:100000]  # Limit the size of xb for testing
 
     base_size = xb.shape[0]
     txt_log = open(txt_path, "w")
@@ -77,19 +78,31 @@ def simulate_dynamic_updates_mrpt(root_dir, txt_path, update_percents=[25, 75], 
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(6)
+        time.sleep(5)
 
-        with lock:
-            reduced_xb = np.concatenate([
-                xb[:base_size - num_updates],
-                xb[base_size - num_updates:]
-            ])
-            start_rebuild = time.time()
-            index = build_mrpt_index(reduced_xb, topk)
-            rebuild_time = time.time() - start_rebuild
-            print(f"Rebuild time: {rebuild_time:.2f}s")
+        delete_start = time.time()
+        log['qps'].append(-1)
+        log['latency'].append(-1)
+        log['recall'].append(-1)
+        delete_xb = xb[:base_size - num_updates]
+        index = build_mrpt_index(delete_xb, topk)
+        log['qps'].append(-2)
+        log['latency'].append(-2)
+        log['recall'].append(-2)
+        print(f"Delete time: {time.time() - delete_start:.2f}s")
 
-        time.sleep(100)
+        insert_start = time.time()
+        log['qps'].append(-3)
+        log['latency'].append(-3)
+        log['recall'].append(-3)
+        insert_xb = xb
+        index = build_mrpt_index(insert_xb, topk)
+        log['qps'].append(-4)
+        log['latency'].append(-4)
+        log['recall'].append(-4)
+        print(f"Insert time: {time.time() - insert_start:.2f}s")
+        
+        time.sleep(5)
         stop_event.set()
         search_thread.join()
 

@@ -43,7 +43,7 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.5)
+        time.sleep(0.25)
 
 def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[25, 75], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
@@ -91,23 +91,36 @@ def simulate_dynamic_updates_ngt(root_dir, txt_path, update_percents=[25, 75], t
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(10)
+        time.sleep(5)
 
-        with lock:
-            start_del = time.time()
-            index = build_ngt_index(xb[:base_size - num_updates])
-            delete_latency = time.time() - start_del
-            print(f"Delete latency: {delete_latency:.4f}s")
+        # with lock:
+        start_del = time.time()
+        log['qps'].append(-1)
+        log['latency'].append(-1)
+        log['recall'].append(-1)
+        index = build_ngt_index(xb[:base_size - num_updates])
+        delete_latency = time.time() - start_del
+        log['qps'].append(-2)
+        log['latency'].append(-2)
+        log['recall'].append(-2)
+        print(f"Delete latency: {delete_latency:.4f}s")
 
-        with lock:
-            start_ins = time.time()
-            for vec in xb[base_size - num_updates:]:
-                index.insert(vec)
-            index.build_index()
-            insert_latency = time.time() - start_ins
-            print(f"Insert throughput: {num_updates / insert_latency:.2f} vectors/sec")
+        # with lock:
+        start_ins = time.time()
+        log['qps'].append(-3)
+        log['latency'].append(-3)
+        log['recall'].append(-3)
+        for vec in xb[base_size - num_updates:]:
+            index.insert(vec)
+        index.build_index()
+        insert_latency = time.time() - start_ins
+        log['qps'].append(-4)
+        log['latency'].append(-4)
+        log['recall'].append(-4)
+        print(f"Insert latency: {insert_latency:.4f}s")
+        print(f"Insert throughput: {num_updates / insert_latency:.2f} items/s")
 
-        time.sleep(30)
+        time.sleep(5)
         stop_event.set()
         search_thread.join()
 

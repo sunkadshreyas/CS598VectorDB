@@ -31,8 +31,8 @@ def compute_recall(results, ground_truth, k):
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
-        with lock:
-            D, I = index.search(xq, topk)
+        # with lock:
+        D, I = index.search(xq, topk)
         end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
@@ -40,11 +40,13 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.5)
+        time.sleep(0.25)
 
 # Main evaluation
-def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+
+    xb = xb[:100000]
 
     txt_log = open(txt_path, "w")
 
@@ -82,23 +84,35 @@ def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[25, 75]
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(2)
+        time.sleep(5)
 
-        with lock:
-            start_del = time.time()
-            index = faiss.IndexHNSWFlat(xb.shape[1], 32)
-            index.hnsw.efConstruction = 40
-            index.hnsw.efSearch = 64
-            index = faiss.IndexIDMap(index)
-            index.add_with_ids(xb[:base_size - num_updates], np.arange(base_size - num_updates))
-            delete_latency = time.time() - start_del
-            print(f"Delete latency: {delete_latency:.4f}s")
+        # with lock:
+        start_del = time.time()
+        log['qps'].append(-1)
+        log['latency'].append(-1)
+        log['recall'].append(-1)
+        index = faiss.IndexHNSWFlat(xb.shape[1], 32)
+        index.hnsw.efConstruction = 40
+        index.hnsw.efSearch = 64
+        index = faiss.IndexIDMap(index)
+        index.add_with_ids(xb[:base_size - num_updates], np.arange(base_size - num_updates))
+        delete_latency = time.time() - start_del
+        log['qps'].append(-2)
+        log['latency'].append(-2)
+        log['recall'].append(-2)
+        print(f"Delete latency: {delete_latency:.4f}s")
 
-        with lock:
-            start_ins = time.time()
-            index.add_with_ids(xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
-            insert_latency = time.time() - start_ins
-            print(f"Insert throughput: {num_updates / insert_latency:.2f} vectors/sec")
+        # with lock:
+        start_ins = time.time()
+        log['qps'].append(-3)
+        log['latency'].append(-3)
+        log['recall'].append(-3)
+        index.add_with_ids(xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
+        insert_latency = time.time() - start_ins
+        log['qps'].append(-4)
+        log['latency'].append(-4)
+        log['recall'].append(-4)
+        print(f"Insert latency: {insert_latency:.4f}s")
 
         time.sleep(5)
         stop_event.set()
@@ -113,7 +127,7 @@ def simulate_dynamic_updates_simple(root_dir, txt_path, update_percents=[25, 75]
         results_summary['final_recall'].append(avg_recall)
 
         txt_log.write(f"\n--- {update_percent}% Update ---\n")
-        for i, (qps, latency, recall) in enumerate(zip(log['qps'], log['latency'], log['recall'])):
+        for i, (qps, latency, recall) in enumerate(zip(log['qps'], log['latency'], log['recall'])):  
             txt_log.write(f"Interval {i+1}: QPS = {qps:.2f} queries/sec, Latency = {latency:.2f} ms, Recall = {recall:.4f}\n")
 
     txt_log.close()

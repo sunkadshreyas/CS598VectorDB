@@ -31,8 +31,8 @@ def compute_recall(results, ground_truth, k):
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
-        with lock:
-            labels, _ = index.knn_query(xq, k=topk)
+        # with lock:
+        labels, _ = index.knn_query(xq, k=topk)
         end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
@@ -40,7 +40,7 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.5)
+        time.sleep(0.25)
 
 # Build new hnswlib index with specified capacity
 def build_index(xb, dim, max_elements, M=32, ef_construction=200, ef=64):
@@ -86,19 +86,31 @@ def simulate_dynamic_updates_hnswlib(root_dir, txt_path, update_percents=[25, 75
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(2)
+        time.sleep(5)
 
-        with lock:
-            start_del = time.time()
-            index = build_index(xb[:base_size - num_updates], dim, max_elements=base_size)
-            delete_latency = time.time() - start_del
-            print(f"Delete latency (rebuild): {delete_latency:.4f}s")
+        # with lock:
+        start_del = time.time()
+        log['qps'].append(-1)
+        log['latency'].append(-1)
+        log['recall'].append(-1)
+        index = build_index(xb[:base_size - num_updates], dim, max_elements=base_size)
+        delete_latency = time.time() - start_del
+        log['qps'].append(-2)
+        log['latency'].append(-2)
+        log['recall'].append(-2)
+        print(f"Delete latency (rebuild): {delete_latency:.4f}s")
 
-        with lock:
-            start_ins = time.time()
-            index.add_items(xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
-            insert_latency = time.time() - start_ins
-            print(f"Insert throughput: {num_updates / insert_latency:.2f} vectors/sec")
+        # with lock:
+        start_ins = time.time()
+        log['qps'].append(-3)
+        log['latency'].append(-3)
+        log['recall'].append(-3)
+        index.add_items(xb[base_size - num_updates:], np.arange(base_size - num_updates, base_size))
+        insert_latency = time.time() - start_ins
+        log['qps'].append(-4)
+        log['latency'].append(-4)
+        log['recall'].append(-4)
+        print(f"Insert latency: {insert_latency:.4f}s")
 
         time.sleep(5)
         stop_event.set()

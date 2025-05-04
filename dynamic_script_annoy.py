@@ -37,8 +37,8 @@ def annoy_search(index, xq, topk):
 def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
     while not stop_event.is_set():
         start = time.time()
-        with lock:
-            I = annoy_search(index, xq, topk)
+        # with lock:
+        I = annoy_search(index, xq, topk)
         end = time.time()
         qps = xq.shape[0] / (end - start)
         latency = (end - start) * 1000
@@ -46,11 +46,12 @@ def background_search_loop(index, xq, gt, topk, log, stop_event, lock):
         log['qps'].append(qps)
         log['latency'].append(latency)
         log['recall'].append(recall)
-        time.sleep(0.5)
+        time.sleep(0.25)
 
 # Main evaluation
-def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[25, 75], topk=10):
+def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[50], topk=10):
     xt, xb, xq, gt = load_dataset(root_dir)
+    xb = xb[:100000]
 
     txt_log = open(txt_path, "w")
 
@@ -61,7 +62,7 @@ def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[25, 75],
     index = AnnoyIndex(dim, metric='euclidean')
     for i in range(base_size):
         index.add_item(i, xb[i])
-    index.build(50)
+    index.build(100)
 
     start = time.time()
     I = annoy_search(index, xq, topk)
@@ -89,18 +90,37 @@ def simulate_dynamic_updates_annoy(root_dir, txt_path, update_percents=[25, 75],
         search_thread = Thread(target=background_search_loop, args=(index, xq, gt, topk, log, stop_event, lock))
         search_thread.start()
 
-        time.sleep(4)
+        time.sleep(5)
 
-        with lock:
-            start_rebuild = time.time()
-            index = AnnoyIndex(dim, metric='euclidean')
-            for i in range(base_size):
-                index.add_item(i, xb[i])
-            index.build(50)
-            rebuild_latency = time.time() - start_rebuild
-            print(f"Rebuild latency (delete + insert): {rebuild_latency:.4f}s")
+        # with lock:
+        start_delete = time.time()
+        log['qps'].append(-1)
+        log['latency'].append(-1)
+        log['recall'].append(-1)
+        index = AnnoyIndex(dim, metric='euclidean')
+        for i in range(base_size * update_percent // 100):
+            index.add_item(i, xb[i])
+        index.build(100)
+        delete_latency = time.time() - start_delete
+        log['qps'].append(-2)
+        log['latency'].append(-2)
+        log['recall'].append(-2)
+        print(f"Delete latency: {delete_latency:.4f}s")
 
-        time.sleep(10)
+        start_insert = time.time()
+        log['qps'].append(-3)
+        log['latency'].append(-3)
+        log['recall'].append(-3)
+        for i in range(base_size * update_percent // 100, base_size):     
+            index.add_item(i, xb[i])
+        index.build(100)
+        insert_latency = time.time() - start_insert
+        log['qps'].append(-4)
+        log['latency'].append(-4)
+        log['recall'].append(-4)
+        print(f"Insert latency: {insert_latency:.4f}s")
+
+        time.sleep(5)
         stop_event.set()
         search_thread.join()
 
